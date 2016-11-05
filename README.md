@@ -2,6 +2,8 @@
 
 A Go library to display progression in console tool. Provides unicode themes with a really simple API.
 
+![example gif](example/tty.gif)
+
 ## Usage
 
 To use, create a new bar with the total, and call the Set() func to update the value, and you are done.
