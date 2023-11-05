@@ -5,6 +5,9 @@ import (
 	"io"
 	"os"
 	"unicode/utf8"
+
+	"golang.org/x/sys/unix"
+	"modernc.org/libc/unistd"
 )
 
 type Format struct {
@@ -19,49 +22,49 @@ var (
 	ProgressFormats = []Format{
 
 		// █▓░░░░░░░░░░ 9%
-		Format{
+		{
 			Fill:  []string{"▓", "█"},
 			Empty: "░",
 		},
 
 		// ⬤◯◯◯◯◯◯◯◯◯ 9%
-		Format{
+		{
 			Fill:  []string{"⬤"},
 			Empty: "◯",
 		},
 
 		// ■□□□□□□□□□□□ 9%
-		Format{
+		{
 			Fill:  []string{"■"},
 			Empty: "□",
 		},
 
 		// ⚫⚫⚫⚫⚪⚪⚪⚪⚪⚪ 41%
-		Format{
+		{
 			Fill:  []string{"⚫"},
 			Empty: "⚪",
 		},
 
 		// ▰▰▰▰▱▱▱▱▱▱ 41%
-		Format{
+		{
 			Fill:  []string{"▰"},
 			Empty: "▱",
 		},
 
 		// ⬛⬛⬛⬛⬜⬜⬜⬜⬜⬜ 41%
-		Format{
+		{
 			Fill:  []string{"⬛"},
 			Empty: "⬜",
 		},
 
 		// ⣿⣿⣿⣿⡟⣀⣀⣀⣀⣀⣀ 41%
-		Format{
+		{
 			Fill:  []string{"⡀", "⡄", "⡆", "⡇", "⡏", "⡟", "⡿", "⣿"},
 			Empty: "⣀",
 		},
 
 		// [======>             ]
-		Format{
+		{
 			Fill:     []string{"="},
 			Head:     ">",
 			LeftEnd:  "[",
@@ -70,7 +73,7 @@ var (
 		},
 
 		// ▉▉▋            41%
-		Format{
+		{
 			Fill:  []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
 			Empty: " ",
 		},
@@ -83,18 +86,39 @@ type ProgressBar struct {
 	Out   io.Writer //where to write
 	Width int       //width of the bar
 
-	total     int
-	progress  int
-	lastWidth int
+	ShowPercent    bool //show percent
+	ShowNumeric    bool //show current/total
+	ShowTextSuffix bool //show suffix text
+
+	total      int
+	progress   int
+	lastWidth  int
+	textSuffix string
 }
 
 func New(total int) *ProgressBar {
 	return &ProgressBar{
-		Format: ProgressFormats[0],
-		total:  total,
-		Out:    os.Stdout,
-		Width:  40,
+		Format:         ProgressFormats[0],
+		total:          total,
+		Out:            os.Stdout,
+		Width:          40,
+		ShowNumeric:    true,
+		ShowPercent:    true,
+		ShowTextSuffix: false,
 	}
+}
+
+func getTerminalWidth() int {
+	ws, err := unix.IoctlGetWinsize(unistd.STDIN_FILENO, unix.TIOCGWINSZ)
+	if err != nil {
+		return 0
+	}
+
+	return int(ws.Col)
+}
+
+func (p *ProgressBar) SetTextSuffix(suffix string) {
+	p.textSuffix = suffix
 }
 
 func (p *ProgressBar) Set(to int) bool {
@@ -121,7 +145,13 @@ func (p *ProgressBar) Inc() bool {
 
 func (p *ProgressBar) clear() {
 	s := "\r"
-	for i := 0; i < p.lastWidth; i++ {
+
+	w := getTerminalWidth()
+	if w == 0 {
+		w = p.lastWidth
+	}
+
+	for i := 0; i < w; i++ {
 		s += " "
 	}
 	s += "\r"
@@ -155,10 +185,22 @@ func (p *ProgressBar) paint() {
 		width--
 	}
 
-	suffix := fmt.Sprintf(" %d/%d [%d%%]", p.progress, p.total, int(percent))
+	suffix := ""
+
+	if p.ShowNumeric {
+		s += fmt.Sprintf(" %d/%d", p.progress, p.total)
+	}
+	if p.ShowPercent {
+		s += fmt.Sprintf(" [%d%%]", int(percent))
+	}
 
 	s += p.RightEnd
 	s += suffix
+
+	if p.ShowTextSuffix {
+		s += " "
+		s += p.textSuffix
+	}
 
 	for utf8.RuneCountInString(s) < p.lastWidth {
 		s += " "
